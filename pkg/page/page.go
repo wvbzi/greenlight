@@ -214,8 +214,10 @@ func (l *Locator) InnerText() string {
 				log.Fatalf("Failed to get inner text for selector %s: %v", l.selector, err)
 			}
 			if result, ok := response["result"].(map[string]interface{}); ok {
-				if value, ok := result["value"].(string); ok {
-					return value
+				if nestedResult, ok := result["result"].(map[string]interface{}); ok {
+					if value, ok := nestedResult["value"].(string); ok {
+						return value
+					}
 				}
 			}
 			log.Fatalf("Unexpected response format for inner text: %v", response)
