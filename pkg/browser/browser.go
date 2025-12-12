@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/bosniankicks/greenlight/pkg/page"
+	"github.com/wvbzi/greenlight/pkg/page"
 )
 
 type Browser struct {
