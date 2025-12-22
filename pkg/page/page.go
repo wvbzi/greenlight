@@ -40,24 +40,25 @@ func (p *Page) YellowLight(milliseconds int) {
 	time.Sleep(time.Duration(milliseconds) * time.Millisecond)
 }
 
-func (p *Page) Goto(url string) {
+func (p *Page) Goto(url string) error {
 	log.Printf("Navigating to: %s", url)
 
 	if err := p.browser.SendCommandWithoutResponse("Page.enable", nil); err != nil {
-		log.Fatalf("Failed to enable Page domain: %v", err)
+		return fmt.Errorf("Failed to enable Page domain: %v", err)
 	}
 	if err := p.browser.SendCommandWithoutResponse("Network.enable", nil); err != nil {
-		log.Fatalf("Failed to enable Network domain: %v", err)
+		return fmt.Errorf("Failed to enable Network domain: %v", err)
 	}
 
 	params := map[string]interface{}{
 		"url": url,
 	}
 	if err := p.browser.SendCommandWithoutResponse("Page.navigate", params); err != nil {
-		log.Fatalf("Failed to navigate to %s: %v", url, err)
+		return fmt.Errorf("Failed to navigate to %s: %v", url, err)
 	}
 
 	log.Printf("Successfully navigated to: %s", url)
+	return nil
 }
 
 func (l *Locator) elementExists() (bool, error) {
@@ -80,14 +81,14 @@ func (l *Locator) elementExists() (bool, error) {
 	return false, fmt.Errorf("unexpected response format: %v", response)
 }
 
-func (l *Locator) Fill(value string) {
+func (l *Locator) Fill(value string) error {
 	timeout := 30 * time.Second
 	interval := 350 * time.Millisecond
 	startTime := time.Now()
 
 	for {
 		if time.Since(startTime) > timeout {
-			log.Fatalf("Timeout exceeded while waiting for selector: %s", l.selector)
+			return fmt.Errorf("Timeout exceeded while waiting for selector: %s", l.selector)
 		}
 
 		exists, err := l.elementExists()
@@ -117,20 +118,20 @@ func (l *Locator) Fill(value string) {
 			})
 
 			log.Printf("Filled selector %s with value: %s", l.selector, value)
-			return
+			return nil
 		}
 		time.Sleep(interval)
 	}
 }
 
-func (l *Locator) Click() {
+func (l *Locator) Click() error {
 	timeout := 30 * time.Second
 	interval := 350 * time.Millisecond
 	startTime := time.Now()
 
 	for {
 		if time.Since(startTime) > timeout {
-			log.Fatalf("Timeout exceeded while waiting for selector: %s", l.selector)
+			return fmt.Errorf("Timeout exceeded while waiting for selector: %s", l.selector)
 		}
 
 		exists, err := l.elementExists()
@@ -148,20 +149,20 @@ func (l *Locator) Click() {
 				log.Fatalf("Failed to click on selector %s: %v", l.selector, err)
 			}
 			log.Printf("Clicked on selector: %s", l.selector)
-			return
+			return nil
 		}
 		time.Sleep(interval)
 	}
 }
 
-func (l *Locator) TypeSequentially(text string, delayMs int) {
+func (l *Locator) TypeSequentially(text string, delayMs int) error {
 	timeout := 30 * time.Second
 	interval := 350 * time.Millisecond
 	startTime := time.Now()
 
 	for {
 		if time.Since(startTime) > timeout {
-			log.Fatalf("Timeout exceeded while waiting for selector: %s", l.selector)
+			return fmt.Errorf("Timeout exceeded while waiting for selector: %s", l.selector)
 		}
 
 		exists, err := l.elementExists()
@@ -182,20 +183,20 @@ func (l *Locator) TypeSequentially(text string, delayMs int) {
 				})
 				time.Sleep(time.Duration(delayMs) * time.Millisecond)
 			}
-			return
+			return nil
 		}
 		time.Sleep(interval)
 	}
 }
 
-func (l *Locator) InnerText() string {
+func (l *Locator) InnerText() (string, error) {
 	timeout := 30 * time.Second
 	interval := 350 * time.Millisecond
 	startTime := time.Now()
 
 	for {
 		if time.Since(startTime) > timeout {
-			log.Fatalf("Timeout exceeded while waiting for selector: %s", l.selector)
+			return "", fmt.Errorf("Timeout exceeded while waiting for selector: %s", l.selector)
 		}
 
 		exists, err := l.elementExists()
@@ -216,7 +217,7 @@ func (l *Locator) InnerText() string {
 			if result, ok := response["result"].(map[string]interface{}); ok {
 				if nestedResult, ok := result["result"].(map[string]interface{}); ok {
 					if value, ok := nestedResult["value"].(string); ok {
-						return value
+						return value, nil
 					}
 				}
 			}
@@ -226,14 +227,14 @@ func (l *Locator) InnerText() string {
 	}
 }
 
-func (l *Locator) TypeWithMistakes(text string, delayMs int) {
+func (l *Locator) TypeWithMistakes(text string, delayMs int) error {
 	timeout := 30 * time.Second
 	interval := 350 * time.Millisecond
 	startTime := time.Now()
 
 	for {
 		if time.Since(startTime) > timeout {
-			log.Fatalf("Timeout exceeded while waiting for selector: %s", l.selector)
+			return fmt.Errorf("Timeout exceeded while waiting for selector: %s", l.selector)
 		}
 
 		exists, err := l.elementExists()
@@ -270,7 +271,7 @@ func (l *Locator) TypeWithMistakes(text string, delayMs int) {
 				})
 				time.Sleep(time.Duration(delayMs) * time.Millisecond)
 			}
-			return
+			return nil
 		}
 		time.Sleep(interval)
 	}

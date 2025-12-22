@@ -31,7 +31,7 @@ type Browser struct {
 	isHeadless   bool
 }
 
-func GreenLight(execPath string, isHeadless bool, startURL string) *Browser {
+func GreenLight(execPath string, isHeadless bool, startURL string) (*Browser, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	userDataDir := filepath.Join(os.TempDir(), fmt.Sprintf("greenlight_%s", uuid.New().String()))
 
@@ -44,10 +44,10 @@ func GreenLight(execPath string, isHeadless bool, startURL string) *Browser {
 	}
 
 	if err := browser.launch(startURL); err != nil {
-		log.Fatalf("Failed to launch browser: %v", err)
+		return nil, fmt.Errorf("Failed to launch browser: %v", err)
 	}
 
-	return browser
+	return browser, nil
 }
 
 func (b *Browser) launch(startURL string) error {
@@ -66,7 +66,7 @@ func (b *Browser) launch(startURL string) error {
 
 	b.cmd = exec.CommandContext(b.context, b.execPath, args...)
 	if err := b.cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start browser: %v", err)
+		return fmt.Errorf("Failed to start browser: %v", err)
 	}
 
 	b.pid = b.cmd.Process.Pid
@@ -101,7 +101,7 @@ func (b *Browser) attachToPage() error {
 				}
 				conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 				if err != nil {
-					return fmt.Errorf("failed to connect to page WebSocket: %v", err)
+					return fmt.Errorf("Failed to connect to page WebSocket: %v", err)
 				}
 				b.conn = conn
 				b.wsEndpoint = wsURL
@@ -110,7 +110,7 @@ func (b *Browser) attachToPage() error {
 			}
 		}
 	}
-	return fmt.Errorf("no suitable page found")
+	return fmt.Errorf("No suitable page found")
 }
 func (b *Browser) SendCommandWithResponse(method string, params map[string]interface{}) (map[string]interface{}, error) {
 	b.messageMutex.Lock()
@@ -200,6 +200,8 @@ func (b *Browser) RedLight() {
 	}
 
 	if b.userDataDir != "" {
+		time.Sleep(500 * time.Millisecond)
+
 		if err := os.RemoveAll(b.userDataDir); err != nil {
 			log.Printf("Error removing user data directory: %v", err)
 		}
