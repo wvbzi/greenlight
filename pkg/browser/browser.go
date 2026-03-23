@@ -201,7 +201,7 @@ func (b *Browser) NewPage() *page.Page {
 	if b.conn == nil {
 		log.Fatal("WebSocket connection not established. Cannot create a new page.")
 	}
-	return page.NewPage(b, b.context)
+	return page.NewPage(b.context, b)
 }
 
 func (b *Browser) RedLight() {

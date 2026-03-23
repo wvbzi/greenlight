@@ -27,7 +27,7 @@ type Locator struct {
 	selector string
 }
 
-func NewPage(browser BrowserInterface, ctx context.Context) *Page {
+func NewPage(ctx context.Context, browser BrowserInterface) *Page {
 	return &Page{browser: browser, ctx: ctx}
 }
 
@@ -310,7 +310,7 @@ func (l *Locator) TypeWithMistakes(text string, delayMs int) error {
 
 							}
 						}
-						
+
 						// Sends correct character.
 						l.page.browser.SendCommandWithoutResponse("Input.insertText", map[string]interface{}{
 							"text": string(char),
