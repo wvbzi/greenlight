@@ -71,7 +71,25 @@ func (p *Page) Goto(url string) error {
 
 func (l *Locator) elementExists() (bool, error) {
 	params := map[string]interface{}{
-		"expression":    fmt.Sprintf(`document.querySelector("%s") !== null`, l.selector),
+		"expression":    fmt.Sprintf(`
+			(() => {
+			const el = document.querySelector("%s");
+			if (!el) return false;
+
+			const style = window.getComputedStyle(el);
+			
+			const isVisible = el.offsetWidth > 0 && 
+								el.offsetHeight > 0 && 
+								style.visibility !== 'hidden' && 
+								style.display !== 'none' && 
+								style.opacity !== '0';
+			const isEnabled = !el.disabled;
+
+			if (!isVisible || !isEnabled) return false;
+
+			return true;
+			})();
+		`, l.selector),
 		"returnByValue": true,
 	}
 	response, err := l.page.browser.SendCommandWithResponse("Runtime.evaluate", params)
