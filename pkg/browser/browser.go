@@ -31,8 +31,8 @@ type Browser struct {
 	isHeadless   bool
 }
 
-func GreenLight(execPath string, isHeadless bool, startURL string) (*Browser, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+func GreenLight(ctx context.Context, execPath string, isHeadless bool, startURL string) (*Browser, error) {
+	ctx, cancel := context.WithCancel(ctx)
 	userDataDir := filepath.Join(os.TempDir(), fmt.Sprintf("greenlight_%s", uuid.New().String()))
 
 	browser := &Browser{
@@ -134,21 +134,41 @@ func (b *Browser) SendCommandWithResponse(method string, params map[string]inter
 		return nil, fmt.Errorf("failed to send WebSocket message: %v", err)
 	}
 
-	for {
-		_, data, err := b.conn.ReadMessage()
-		if err != nil {
-			return nil, fmt.Errorf("failed to read WebSocket message: %v", err)
-		}
+	type wsResult struct {
+		response map[string]interface{}
+		err      error
+	}
 
-		var response map[string]interface{}
-		if err := json.Unmarshal(data, &response); err != nil {
-			log.Printf("Failed to parse WebSocket message: %s", string(data))
-			continue
-		}
+	resultChan := make(chan wsResult, 1)
 
-		if responseID, ok := response["id"].(float64); ok && int(responseID) == id {
-			return response, nil
+	go func() {
+		for {
+			_, data, err := b.conn.ReadMessage()
+			if err != nil {
+				resultChan <- wsResult{nil, fmt.Errorf("failed to read WebSocket message: %v", err)}
+				return
+			}
+
+			var response map[string]interface{}
+			if err := json.Unmarshal(data, &response); err != nil {
+				log.Printf("Failed to parse WebSocket message: %s", string(data))
+				continue
+			}
+
+			if responseID, ok := response["id"].(float64); ok && int(responseID) == id {
+				resultChan <- wsResult{response, nil}
+				return
+			}
 		}
+	}()
+
+	// Waits until there's a context.cancel() call or until error/valid response from ws.
+	select {
+	case <-b.context.Done():
+		return nil, b.context.Err()
+
+	case result := <-resultChan:
+		return result.response, result.err
 	}
 }
 
@@ -181,7 +201,7 @@ func (b *Browser) NewPage() *page.Page {
 	if b.conn == nil {
 		log.Fatal("WebSocket connection not established. Cannot create a new page.")
 	}
-	return page.NewPage(b)
+	return page.NewPage(b, b.context)
 }
 
 func (b *Browser) RedLight() {

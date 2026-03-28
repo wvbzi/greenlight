@@ -1,6 +1,7 @@
 package page
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math/rand"
@@ -18,6 +19,7 @@ type BrowserInterface interface {
 
 type Page struct {
 	browser BrowserInterface
+	ctx     context.Context
 }
 
 type Locator struct {
@@ -25,8 +27,8 @@ type Locator struct {
 	selector string
 }
 
-func NewPage(browser BrowserInterface) *Page {
-	return &Page{browser: browser}
+func NewPage(browser BrowserInterface, ctx context.Context) *Page {
+	return &Page{browser: browser, ctx: ctx}
 }
 
 func (p *Page) Locator(selector string) *Locator {
@@ -36,8 +38,14 @@ func (p *Page) Locator(selector string) *Locator {
 	}
 }
 
-func (p *Page) YellowLight(milliseconds int) {
-	time.Sleep(time.Duration(milliseconds) * time.Millisecond)
+func (p *Page) YellowLight(milliseconds int) error {
+	select {
+	case <-p.ctx.Done():
+		return p.ctx.Err()
+
+	case <-time.After(time.Duration(milliseconds) * time.Millisecond):
+		return nil
+	}
 }
 
 func (p *Page) Goto(url string) error {
@@ -82,197 +90,235 @@ func (l *Locator) elementExists() (bool, error) {
 }
 
 func (l *Locator) Fill(value string) error {
-	timeout := 30 * time.Second
-	interval := 350 * time.Millisecond
-	startTime := time.Now()
+	timeout := time.NewTimer(30 * time.Second)
+	defer timeout.Stop()
+	interval := time.NewTicker(350 * time.Millisecond)
+	defer interval.Stop()
 
 	for {
-		if time.Since(startTime) > timeout {
+		select {
+		case <-l.page.ctx.Done():
+			return fmt.Errorf("Operation cancelled: %s", l.page.ctx.Err())
+
+		case <-timeout.C:
 			return fmt.Errorf("Timeout exceeded while waiting for selector: %s", l.selector)
+
+		case <-interval.C:
+			exists, err := l.elementExists()
+			if err != nil {
+				continue
+			}
+			if exists {
+				// Focus element
+				l.page.browser.SendCommandWithoutResponse("Runtime.evaluate", map[string]interface{}{
+					"expression": fmt.Sprintf(`document.querySelector("%s").focus()`, l.selector),
+				})
+
+				l.page.browser.SendCommandWithoutResponse("Input.dispatchKeyEvent", map[string]interface{}{
+					"type":      "keyDown",
+					"modifiers": 2,
+					"key":       "a",
+				})
+				l.page.browser.SendCommandWithoutResponse("Input.dispatchKeyEvent", map[string]interface{}{
+					"type": "keyDown",
+					"key":  "Backspace",
+				})
+
+				l.page.browser.SendCommandWithoutResponse("Input.insertText", map[string]interface{}{
+					"text": value,
+				})
+
+				log.Printf("Filled selector %s with value: %s", l.selector, value)
+				return nil
+			}
 		}
-
-		exists, err := l.elementExists()
-		if err != nil {
-			time.Sleep(interval)
-			continue
-		}
-
-		if exists {
-			// Focus element
-			l.page.browser.SendCommandWithoutResponse("Runtime.evaluate", map[string]interface{}{
-				"expression": fmt.Sprintf(`document.querySelector("%s").focus()`, l.selector),
-			})
-
-			l.page.browser.SendCommandWithoutResponse("Input.dispatchKeyEvent", map[string]interface{}{
-				"type":      "keyDown",
-				"modifiers": 2,
-				"key":       "a",
-			})
-			l.page.browser.SendCommandWithoutResponse("Input.dispatchKeyEvent", map[string]interface{}{
-				"type": "keyDown",
-				"key":  "Backspace",
-			})
-
-			l.page.browser.SendCommandWithoutResponse("Input.insertText", map[string]interface{}{
-				"text": value,
-			})
-
-			log.Printf("Filled selector %s with value: %s", l.selector, value)
-			return nil
-		}
-		time.Sleep(interval)
 	}
 }
 
 func (l *Locator) Click() error {
-	timeout := 30 * time.Second
-	interval := 350 * time.Millisecond
-	startTime := time.Now()
+	timeout := time.NewTimer(30 * time.Second)
+	defer timeout.Stop()
+	interval := time.NewTicker(350 * time.Millisecond)
+	defer interval.Stop()
 
 	for {
-		if time.Since(startTime) > timeout {
+		select {
+		case <-l.page.ctx.Done():
+			return fmt.Errorf("Operation cancelled: %s", l.page.ctx.Err())
+
+		case <-timeout.C:
 			return fmt.Errorf("Timeout exceeded while waiting for selector: %s", l.selector)
-		}
 
-		exists, err := l.elementExists()
-		if err != nil {
-			time.Sleep(interval)
-			continue
-		}
-
-		if exists {
-			params := map[string]interface{}{
-				"expression":   fmt.Sprintf(`document.querySelector("%s").click()`, l.selector),
-				"awaitPromise": true,
+		case <-interval.C:
+			exists, err := l.elementExists()
+			if err != nil {
+				continue
 			}
-			if err := l.page.browser.SendCommandWithoutResponse("Runtime.evaluate", params); err != nil {
-				log.Fatalf("Failed to click on selector %s: %v", l.selector, err)
+			if exists {
+				params := map[string]interface{}{
+					"expression":   fmt.Sprintf(`document.querySelector("%s").click()`, l.selector),
+					"awaitPromise": true,
+				}
+				if err := l.page.browser.SendCommandWithoutResponse("Runtime.evaluate", params); err != nil {
+					return fmt.Errorf("Failed to click on selector %s: %v", l.selector, err)
+				}
+				log.Printf("Clicked on selector: %s", l.selector)
+				return nil
 			}
-			log.Printf("Clicked on selector: %s", l.selector)
-			return nil
 		}
-		time.Sleep(interval)
 	}
 }
 
 func (l *Locator) TypeSequentially(text string, delayMs int) error {
-	timeout := 30 * time.Second
-	interval := 350 * time.Millisecond
-	startTime := time.Now()
+	timeout := time.NewTimer(30 * time.Second)
+	defer timeout.Stop()
+	interval := time.NewTicker(350 * time.Millisecond)
+	defer interval.Stop()
 
 	for {
-		if time.Since(startTime) > timeout {
+		select {
+		case <-l.page.ctx.Done():
+			return fmt.Errorf("Operation cancelled: %s", l.page.ctx.Err())
+
+		case <-timeout.C:
 			return fmt.Errorf("Timeout exceeded while waiting for selector: %s", l.selector)
-		}
 
-		exists, err := l.elementExists()
-		if err != nil {
-			time.Sleep(interval)
-			continue
-		}
-
-		if exists {
-
-			l.page.browser.SendCommandWithoutResponse("Runtime.evaluate", map[string]interface{}{
-				"expression": fmt.Sprintf(`document.querySelector("%s").focus()`, l.selector),
-			})
-
-			for _, char := range text {
-				l.page.browser.SendCommandWithoutResponse("Input.insertText", map[string]interface{}{
-					"text": string(char),
-				})
-				time.Sleep(time.Duration(delayMs) * time.Millisecond)
+		case <-interval.C:
+			exists, err := l.elementExists()
+			if err != nil {
+				continue
 			}
-			return nil
+			if exists {
+				l.page.browser.SendCommandWithoutResponse("Runtime.evaluate", map[string]interface{}{
+					"expression": fmt.Sprintf(`document.querySelector("%s").focus()`, l.selector),
+				})
+
+				for _, char := range text {
+					select {
+					case <-l.page.ctx.Done():
+						return fmt.Errorf("")
+
+					case <-time.After(time.Duration(delayMs) * time.Millisecond):
+						l.page.browser.SendCommandWithoutResponse("Input.insertText", map[string]interface{}{
+							"text": string(char),
+						})
+					}
+				}
+				return nil
+			}
 		}
-		time.Sleep(interval)
 	}
 }
 
 func (l *Locator) InnerText() (string, error) {
-	timeout := 30 * time.Second
-	interval := 350 * time.Millisecond
-	startTime := time.Now()
+	timeout := time.NewTimer(30 * time.Second)
+	defer timeout.Stop()
+	interval := time.NewTicker(350 * time.Millisecond)
+	defer interval.Stop()
 
 	for {
-		if time.Since(startTime) > timeout {
+		select {
+		case <-l.page.ctx.Done():
+			return "", fmt.Errorf("Operation cancelled: %s", l.page.ctx.Err())
+
+		case <-timeout.C:
 			return "", fmt.Errorf("Timeout exceeded while waiting for selector: %s", l.selector)
-		}
 
-		exists, err := l.elementExists()
-		if err != nil {
-			time.Sleep(interval)
-			continue
-		}
-
-		if exists {
-			params := map[string]interface{}{
-				"expression":    fmt.Sprintf(`document.querySelector("%s").innerText`, l.selector),
-				"returnByValue": true,
-			}
-			response, err := l.page.browser.SendCommandWithResponse("Runtime.evaluate", params)
+		case <-interval.C:
+			exists, err := l.elementExists()
 			if err != nil {
-				log.Fatalf("Failed to get inner text for selector %s: %v", l.selector, err)
+				continue
 			}
-			if result, ok := response["result"].(map[string]interface{}); ok {
-				if nestedResult, ok := result["result"].(map[string]interface{}); ok {
-					if value, ok := nestedResult["value"].(string); ok {
-						return value, nil
+			if exists {
+				params := map[string]interface{}{
+					"expression":    fmt.Sprintf(`document.querySelector("%s").innerText`, l.selector),
+					"returnByValue": true,
+				}
+				response, err := l.page.browser.SendCommandWithResponse("Runtime.evaluate", params)
+				if err != nil {
+					return "", fmt.Errorf("Failed to get inner text for selector %s: %v", l.selector, err)
+				}
+				if result, ok := response["result"].(map[string]interface{}); ok {
+					if nestedResult, ok := result["result"].(map[string]interface{}); ok {
+						if value, ok := nestedResult["value"].(string); ok {
+							return value, nil
+						}
 					}
 				}
+				return "", fmt.Errorf("Unexpected response format for inner text: %v", response)
 			}
-			log.Fatalf("Unexpected response format for inner text: %v", response)
 		}
-		time.Sleep(interval)
 	}
 }
 
 func (l *Locator) TypeWithMistakes(text string, delayMs int) error {
-	timeout := 30 * time.Second
-	interval := 350 * time.Millisecond
-	startTime := time.Now()
+	timeout := time.NewTimer(30 * time.Second)
+	defer timeout.Stop()
+	interval := time.NewTicker(350 * time.Millisecond)
+	defer interval.Stop()
 
 	for {
-		if time.Since(startTime) > timeout {
+		select {
+		case <-l.page.ctx.Done():
+			return fmt.Errorf("Operation cancelled: %s", l.page.ctx.Err())
+
+		case <-timeout.C:
 			return fmt.Errorf("Timeout exceeded while waiting for selector: %s", l.selector)
-		}
 
-		exists, err := l.elementExists()
-		if err != nil {
-			time.Sleep(interval)
-			continue
-		}
-
-		if exists {
-			l.page.browser.SendCommandWithoutResponse("Runtime.evaluate", map[string]interface{}{
-				"expression": fmt.Sprintf(`document.querySelector("%s").focus()`, l.selector),
-			})
-
-			for _, char := range text {
-				if rand.Float32() < 0.4 {
-					wrongChar := string(rand.Int31n(26) + 'a')
-
-					l.page.browser.SendCommandWithoutResponse("Input.insertText", map[string]interface{}{
-						"text": wrongChar,
-					})
-					time.Sleep(time.Duration(delayMs) * time.Millisecond)
-
-					l.page.browser.SendCommandWithoutResponse("Input.dispatchKeyEvent", map[string]interface{}{
-						"type":                  "rawKeyDown",
-						"key":                   "Backspace",
-						"windowsVirtualKeyCode": 8,
-						"nativeVirtualKeyCode":  8,
-					})
-					time.Sleep(time.Duration(delayMs) * time.Millisecond)
-				}
-
-				l.page.browser.SendCommandWithoutResponse("Input.insertText", map[string]interface{}{
-					"text": string(char),
-				})
-				time.Sleep(time.Duration(delayMs) * time.Millisecond)
+		case <-interval.C:
+			exists, err := l.elementExists()
+			if err != nil {
+				continue
 			}
-			return nil
+
+			if exists {
+				l.page.browser.SendCommandWithoutResponse("Runtime.evaluate", map[string]interface{}{
+					"expression": fmt.Sprintf(`document.querySelector("%s").focus()`, l.selector),
+				})
+
+				for _, char := range text {
+					select {
+					case <-l.page.ctx.Done():
+						return fmt.Errorf("Operation cancelled: %s", l.page.ctx.Err())
+
+					case <-time.After(time.Duration(delayMs) * time.Millisecond):
+						if rand.Float32() < 0.4 {
+							wrongChar := string(rand.Int31n(26) + 'a')
+
+							l.page.browser.SendCommandWithoutResponse("Input.insertText", map[string]interface{}{
+								"text": wrongChar,
+							})
+
+							select {
+							case <-l.page.ctx.Done():
+								return fmt.Errorf("Operation cancelled: %s", l.page.ctx.Err())
+
+							case <-time.After(time.Duration(delayMs) * time.Millisecond):
+								l.page.browser.SendCommandWithoutResponse("Input.dispatchKeyEvent", map[string]interface{}{
+									"type":                  "rawKeyDown",
+									"key":                   "Backspace",
+									"windowsVirtualKeyCode": 8,
+									"nativeVirtualKeyCode":  8,
+								})
+							}
+
+							select {
+							case <-l.page.ctx.Done():
+								return fmt.Errorf("Operation cancelled: %s", l.page.ctx.Err())
+
+							case <-time.After(time.Duration(delayMs) * time.Millisecond):
+
+							}
+						}
+						
+						// Sends correct character.
+						l.page.browser.SendCommandWithoutResponse("Input.insertText", map[string]interface{}{
+							"text": string(char),
+						})
+					}
+				}
+				return nil
+			}
 		}
-		time.Sleep(interval)
 	}
 }
