@@ -69,6 +69,54 @@ func (p *Page) Goto(url string) error {
 	return nil
 }
 
+func (p *Page) readyStateComplete() (bool, error) {
+	params := map[string]interface{}{
+		"expression":    `document.readyState === "complete"`,
+		"returnByValue": true,
+	}
+	response, err := p.browser.SendCommandWithResponse("Runtime.evaluate", params)
+	if err != nil {
+		log.Printf("Error sending command: %s", err)
+		return false, err
+	}
+
+	if result, ok := response["result"].(map[string]interface{}); ok {
+		if nestedResult, ok := result["result"].(map[string]interface{}); ok {
+			if value, ok := nestedResult["value"].(bool); ok {
+				return value, nil
+			}
+		}
+	}
+	return false, fmt.Errorf("unexpected response format: %v", response)
+}
+
+func (p *Page) WaitForPageLoad() error {
+	timeout := time.NewTimer(30 * time.Second)
+	defer timeout.Stop()
+	interval := time.NewTicker(350 * time.Millisecond)
+	defer interval.Stop()
+
+	for {
+		select {
+		case <-p.ctx.Done():
+			return fmt.Errorf("Operation cancelled: %s", p.ctx.Err())
+
+		case <-timeout.C:
+			return fmt.Errorf("Timeout exceeded while waiting for page to load.")
+
+		case <-interval.C:
+			loaded, err := p.readyStateComplete()
+			if err != nil {
+				continue
+			}
+			if loaded {
+				log.Print("Page successfully loaded.")
+				return nil
+			}
+		}
+	}
+}
+
 func (l *Locator) elementExists() (bool, error) {
 	params := map[string]interface{}{
 		"expression":    fmt.Sprintf(`
