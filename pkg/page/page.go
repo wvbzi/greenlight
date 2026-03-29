@@ -119,7 +119,7 @@ func (p *Page) WaitForPageLoad() error {
 
 func (l *Locator) elementExists() (bool, error) {
 	params := map[string]interface{}{
-		"expression":    fmt.Sprintf(`
+		"expression": fmt.Sprintf(`
 			(() => {
 			const el = document.querySelector("%s");
 			if (!el) return false;
@@ -194,8 +194,29 @@ func (l *Locator) Fill(value string) error {
 					"text": value,
 				})
 
-				log.Printf("Filled selector %s with value: %s", l.selector, value)
-				return nil
+				// Check if element value matches expected value
+				params := map[string]interface{}{
+					"expression":    fmt.Sprintf(`document.querySelector("%s").value === "%s"`, l.selector, value),
+					"returnByValue": true,
+				}
+				response, err := l.page.browser.SendCommandWithResponse("Runtime.evaluate", params)
+				if err != nil {
+					return err
+				}
+
+				if result, ok := response["result"].(map[string]interface{}); ok {
+					if nestedResult, ok := result["result"].(map[string]interface{}); ok {
+						if respValue, ok := nestedResult["value"].(bool); ok {
+							if respValue {
+								log.Printf("Filled selector %s with value: %s", l.selector, value)
+								return nil
+							}
+							log.Printf("Element value doesn't match expected value, attempting fill again.")
+							continue
+						}
+					}
+				}
+				return fmt.Errorf("unexpected response format: %v", response)
 			}
 		}
 	}
