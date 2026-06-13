@@ -31,6 +31,17 @@ type Browser struct {
 	isHeadless   bool
 }
 
+type Cookie struct {
+	Name     string  `json:"name"`
+	Value    string  `json:"value"`
+	Domain   string  `json:"domain"`
+	Path     string  `json:"path"`
+	Expires  float64 `json:"expires"`
+	HTTPOnly bool    `json:"httpOnly"`
+	Secure   bool    `json:"secure"`
+	SameSite string  `json:"sameSite"`
+}
+
 func GreenLight(ctx context.Context, execPath string, isHeadless bool, startURL string) (*Browser, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	userDataDir := filepath.Join(os.TempDir(), fmt.Sprintf("greenlight_%s", uuid.New().String()))
@@ -112,6 +123,7 @@ func (b *Browser) attachToPage() error {
 	}
 	return fmt.Errorf("No suitable page found")
 }
+
 func (b *Browser) SendCommandWithResponse(method string, params map[string]interface{}) (map[string]interface{}, error) {
 	b.messageMutex.Lock()
 	b.messageID++
@@ -229,4 +241,45 @@ func (b *Browser) RedLight() {
 
 	b.cancel()
 	log.Println("Browser closed successfully.")
+}
+
+func (b *Browser) GetAllCookies() ([]Cookie, error) {
+	response, err := b.SendCommandWithResponse("Storage.getCookies", nil)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to get all cookies from browser: %v", err)
+	}
+
+	if result, ok := response["result"].(map[string]interface{}); ok {
+		raw, err := json.Marshal(result["cookies"])
+		if err != nil {
+			return nil, fmt.Errorf("Failed to marshal cookies from CDP response: %v", err)
+		}
+
+		var cookies []Cookie
+		if err := json.Unmarshal(raw, &cookies); err != nil {
+			return nil, fmt.Errorf("Failed to unmarshal cookies from CDP response: %v", err)
+		}
+
+		return cookies, nil
+	}
+	return nil, fmt.Errorf("Unexpected response format from Storage.getCookies: %v", response)
+}
+
+func (b *Browser) SetCookies(cookies []Cookie) error {
+	params := map[string]interface{}{
+		"cookies": cookies,
+	}
+	err := b.SendCommandWithoutResponse("Network.setCookies", params)
+	if err != nil {
+		return fmt.Errorf("Failed to set cookies: %v", err)
+	}
+	return nil
+}
+
+func (b *Browser) ClearAllCookies() error {
+	err := b.SendCommandWithoutResponse("Storage.clearCookies", nil)
+	if err != nil {
+		return fmt.Errorf("Failed to clear all cookies: %v", err)
+	}
+	return nil
 }
