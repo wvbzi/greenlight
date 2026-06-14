@@ -155,6 +155,10 @@ func (l *Locator) elementExists() (bool, error) {
 	return false, fmt.Errorf("unexpected response format: %v", response)
 }
 
+func (l *Locator) Exists() (bool, error) {
+	return l.elementExists()
+}
+
 func (l *Locator) Fill(value string) error {
 	timeout := time.NewTimer(30 * time.Second)
 	defer timeout.Stop()
