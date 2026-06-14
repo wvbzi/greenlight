@@ -177,6 +177,9 @@ func (b *Browser) SendCommandWithResponse(method string, params map[string]inter
 	// Waits until there's a context.cancel() call or until error/valid response from ws.
 	select {
 	case <-b.context.Done():
+		if b.conn != nil {
+			b.conn.Close()
+		}
 		return nil, b.context.Err()
 
 	case result := <-resultChan:
