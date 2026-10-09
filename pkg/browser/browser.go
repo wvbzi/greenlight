@@ -42,7 +42,7 @@ type Cookie struct {
 	SameSite string  `json:"sameSite"`
 }
 
-func GreenLight(ctx context.Context, execPath string, isHeadless bool, startURL string) (*Browser, error) {
+func GreenLight(ctx context.Context, execPath string, isHeadless bool, startURL string, extraArgs ...string) (*Browser, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	userDataDir := filepath.Join(os.TempDir(), fmt.Sprintf("greenlight_%s", uuid.New().String()))
 
@@ -54,14 +54,14 @@ func GreenLight(ctx context.Context, execPath string, isHeadless bool, startURL 
 		isHeadless:  isHeadless,
 	}
 
-	if err := browser.launch(startURL); err != nil {
+	if err := browser.launch(startURL, extraArgs...); err != nil {
 		return nil, fmt.Errorf("Failed to launch browser: %v", err)
 	}
 
 	return browser, nil
 }
 
-func (b *Browser) launch(startURL string) error {
+func (b *Browser) launch(startURL string, extraArgs ...string) error {
 	debugPort := "9222"
 	args := []string{
 		"--remote-debugging-port=" + debugPort,
@@ -74,6 +74,8 @@ func (b *Browser) launch(startURL string) error {
 	if b.isHeadless {
 		args = append(args, "--headless=new")
 	}
+
+	args = append(args, extraArgs...)
 
 	b.cmd = exec.CommandContext(b.context, b.execPath, args...)
 	if err := b.cmd.Start(); err != nil {
