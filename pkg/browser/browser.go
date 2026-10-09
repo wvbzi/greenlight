@@ -3,6 +3,7 @@ package browser
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -29,6 +30,7 @@ type Browser struct {
 	messageMutex sync.Mutex
 	pid          int
 	isHeadless   bool
+	cleanupOnce  sync.Once
 }
 
 type Cookie struct {
@@ -55,6 +57,7 @@ func GreenLight(ctx context.Context, execPath string, isHeadless bool, startURL 
 	}
 
 	if err := browser.launch(startURL, extraArgs...); err != nil {
+		browser.RedLight()
 		return nil, fmt.Errorf("Failed to launch browser: %v", err)
 	}
 
@@ -244,30 +247,37 @@ func (b *Browser) NewPage() *page.Page {
 }
 
 func (b *Browser) RedLight() {
-	if b.conn != nil {
-		if err := b.conn.Close(); err != nil {
-			log.Printf("Error closing WebSocket: %v", err)
+	b.cleanupOnce.Do(func() {
+		b.cancel()
+
+		if b.conn != nil {
+			if err := b.conn.Close(); err != nil {
+				log.Printf("Error closing WebSocket: %v", err)
+			}
 		}
-	}
 
-	if b.cmd != nil && b.cmd.Process != nil {
-		if err := b.cmd.Process.Kill(); err != nil {
-			log.Printf("Error killing browser process: %v", err)
-		} else {
-			b.cmd.Wait()
+		if b.cmd != nil && b.cmd.Process != nil {
+			if err := b.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+				log.Printf("Error killing browser process: %v", err)
+			}
+			if err := b.cmd.Wait(); err != nil {
+				var exitErr *exec.ExitError
+				if !errors.As(err, &exitErr) {
+					log.Printf("Error waiting for browser process: %v", err)
+				}
+			}
 		}
-	}
 
-	if b.userDataDir != "" {
-		time.Sleep(500 * time.Millisecond)
+		if b.userDataDir != "" {
+			time.Sleep(500 * time.Millisecond)
 
-		if err := os.RemoveAll(b.userDataDir); err != nil {
-			log.Printf("Error removing user data directory: %v", err)
+			if err := os.RemoveAll(b.userDataDir); err != nil {
+				log.Printf("Error removing user data directory: %v", err)
+			}
 		}
-	}
 
-	b.cancel()
-	log.Println("Browser closed successfully.")
+		log.Println("Browser closed successfully.")
+	})
 }
 
 func (b *Browser) GetAllCookies() ([]Cookie, error) {
