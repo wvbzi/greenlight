@@ -85,7 +85,12 @@ func (b *Browser) launch(startURL string, extraArgs ...string) error {
 	b.pid = b.cmd.Process.Pid
 	log.Printf("Chrome started with PID: %d", b.pid)
 
-	time.Sleep(time.Second)
+	select {
+	case <-b.context.Done():
+		return b.context.Err()
+	case <-time.After(time.Second):
+	}
+
 	if err := b.attachToPage(); err != nil {
 		return err
 	}
@@ -95,11 +100,20 @@ func (b *Browser) launch(startURL string, extraArgs ...string) error {
 
 func (b *Browser) attachToPage() error {
 	debugPort := "9222"
-	resp, err := http.Get(fmt.Sprintf("http://localhost:%s/json", debugPort))
+	req, err := http.NewRequestWithContext(b.context, "GET", fmt.Sprintf("http://localhost:%s/json", debugPort), nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to fetch active pages: %v", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected HTTP status fetching active pages: %s", resp.Status)
+	}
 
 	var pages []map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&pages); err != nil {
@@ -112,7 +126,7 @@ func (b *Browser) attachToPage() error {
 				if b.conn != nil {
 					b.conn.Close()
 				}
-				conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+				conn, _, err := websocket.DefaultDialer.DialContext(b.context, wsURL, nil)
 				if err != nil {
 					return fmt.Errorf("Failed to connect to page WebSocket: %v", err)
 				}
@@ -127,6 +141,10 @@ func (b *Browser) attachToPage() error {
 }
 
 func (b *Browser) SendCommandWithResponse(method string, params map[string]interface{}) (map[string]interface{}, error) {
+	if err := b.context.Err(); err != nil {
+		return nil, err
+	}
+
 	b.messageMutex.Lock()
 	b.messageID++
 	id := b.messageID
@@ -190,6 +208,10 @@ func (b *Browser) SendCommandWithResponse(method string, params map[string]inter
 }
 
 func (b *Browser) SendCommandWithoutResponse(method string, params map[string]interface{}) error {
+	if err := b.context.Err(); err != nil {
+		return err
+	}
+
 	b.messageMutex.Lock()
 	b.messageID++
 	id := b.messageID
