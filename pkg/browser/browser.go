@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -251,13 +253,13 @@ func (b *Browser) RedLight() {
 		b.cancel()
 
 		if b.conn != nil {
-			if err := b.conn.Close(); err != nil {
+			if err := b.conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) && !strings.Contains(err.Error(), "use of closed network connection") {
 				log.Printf("Error closing WebSocket: %v", err)
 			}
 		}
 
 		if b.cmd != nil && b.cmd.Process != nil {
-			if err := b.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			if err := b.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) && !strings.Contains(err.Error(), "Access is denied") {
 				log.Printf("Error killing browser process: %v", err)
 			}
 			if err := b.cmd.Wait(); err != nil {
